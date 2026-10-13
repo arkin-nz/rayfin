@@ -416,6 +416,39 @@ describe('ConfigGenerator - Advanced Permissions', () => {
   });
 });
 
+describe('ConfigGenerator - contains policy (experimental)', () => {
+  @entity()
+  @role('authenticated', 'read', {
+    policy: (claims, item) =>
+      item.managerIds.contains(claims.sub, { delimiter: '|' }),
+  })
+  class ManagedRecord {
+    @uuid() id!: string;
+    @text() managerIds!: string;
+  }
+
+  it('emits the contains predicate into policy.database', () => {
+    const analyzer = new SchemaAnalyzer([ManagedRecord], DatabaseDialect.MsSql);
+    const generator = new ConfigGenerator(DatabaseDialect.MsSql);
+    const config = generator.generateConfig(analyzer.analyzeEntities());
+
+    expect(config.entities.ManagedRecord.permissions).toEqual([
+      {
+        role: 'authenticated',
+        actions: [
+          {
+            action: 'read',
+            policy: {
+              database:
+                "contains(@item.managerIds, concat(concat('|', @claims.sub), '|'))",
+            },
+          },
+        ],
+      },
+    ]);
+  });
+});
+
 // ============================================================================
 // RELATIONSHIP TESTS - BIDIRECTIONAL (@one + @many)
 // ============================================================================

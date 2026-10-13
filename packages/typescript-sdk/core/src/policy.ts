@@ -47,8 +47,13 @@ export interface PolicyExpression {
   or(expr: PolicyExpression): PolicyExpression;
 }
 
-/** Supported comparison operators in policy expressions. */
-export type ComparisonOperator = 'eq' | 'ne';
+/**
+ * Supported comparison operators in policy expressions.
+ *
+ * `contains` is experimental: it serializes to the OData `contains(...)`
+ * function form. Data entities only; storage policies reject it.
+ */
+export type ComparisonOperator = 'eq' | 'ne' | 'contains';
 /** Supported logical operators in policy expressions. */
 export type LogicalOperator = 'and' | 'or';
 
@@ -150,6 +155,35 @@ export class FieldRef extends BaseExpression {
     return new ComparisonExpression(this, 'ne', value);
   }
 
+  /**
+   * Builds a substring match against this field (experimental).
+   *
+   * With `delimiter`, the needle is wrapped on both sides (for example
+   * `'|' + value + '|'`) so `123` does not match a stored `|91234|`. The
+   * stored column must then carry the delimiter at both ends.
+   *
+   * @param value - The substring (literal or claim) to search for.
+   * @param options - Optional delimiter to wrap the needle with.
+   * @returns A comparison expression (`contains(@item.field, value)`).
+   */
+  contains(
+    value: ClaimRef | string,
+    options?: { delimiter?: string }
+  ): PolicyExpression {
+    const delimiter = options?.delimiter;
+    let needle: Operand = value;
+    if (delimiter) {
+      needle =
+        typeof value === 'string'
+          ? `${delimiter}${value}${delimiter}`
+          : new ConcatExpression(
+              new ConcatExpression(delimiter, value),
+              delimiter
+            );
+    }
+    return new ComparisonExpression(this, 'contains', needle);
+  }
+
   /** Serializes the field reference (for example, `@item.user_id`). */
   toString(): string {
     return `@item.${this.name}`;
@@ -181,7 +215,24 @@ export class ComparisonExpression extends BaseExpression {
 
   /** Serializes the comparison to its DAB policy string form. */
   toString(): string {
+    if (this.operator === 'contains') {
+      return `contains(${serializeOperand(this.left)}, ${serializeOperand(this.right)})`;
+    }
     return `${serializeOperand(this.left)} ${this.operator} ${serializeOperand(this.right)}`;
+  }
+}
+
+/** OData `concat(left, right)`; used to build delimited `contains` needles. */
+class ConcatExpression extends BaseExpression {
+  constructor(
+    public readonly left: Operand,
+    public readonly right: Operand
+  ) {
+    super();
+  }
+
+  toString(): string {
+    return `concat(${serializeOperand(this.left)}, ${serializeOperand(this.right)})`;
   }
 }
 
@@ -381,6 +432,10 @@ function comparisonOperatorToCheckOp(
       return 'eq';
     case 'ne':
       return 'neq';
+    case 'contains':
+      throw new Error(
+        'The contains operator is not supported in storage policies.'
+      );
     default:
       return assertUnsupportedComparisonOperator(operator);
   }

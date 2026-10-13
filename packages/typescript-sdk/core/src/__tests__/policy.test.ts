@@ -65,6 +65,42 @@ describe('Typed policy DSL', () => {
     );
   });
 
+  describe('contains (experimental)', () => {
+    interface Account {
+      managerIds: string;
+    }
+
+    it('serializes a literal substring match', () => {
+      const account = createItemProxy<Account>();
+      expect(account.managerIds.contains("O'Hare").toString()).toBe(
+        "contains(@item.managerIds, 'O''Hare')"
+      );
+    });
+
+    it('wraps a literal needle with the delimiter on both sides', () => {
+      const account = createItemProxy<Account>();
+      expect(
+        account.managerIds.contains('123456', { delimiter: '|' }).toString()
+      ).toBe("contains(@item.managerIds, '|123456|')");
+    });
+
+    it('wraps a claim needle with concat when a delimiter is given', () => {
+      const account = createItemProxy<Account>();
+      expect(
+        account.managerIds.contains(claims.sub, { delimiter: '|' }).toString()
+      ).toBe(
+        "contains(@item.managerIds, concat(concat('|', @claims.sub), '|'))"
+      );
+    });
+
+    it('is rejected by the storage check AST', () => {
+      const account = createItemProxy<Account>();
+      expect(() =>
+        serializeCheckToAst(account.managerIds.contains(claims.sub))
+      ).toThrow('The contains operator is not supported in storage policies.');
+    });
+  });
+
   describe('complex boolean expressions', () => {
     it('handles (A AND B) OR (C AND D) grouping', () => {
       const todo = createItemProxy<Todo>();
